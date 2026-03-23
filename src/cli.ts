@@ -12,7 +12,7 @@ const program = new Command();
 program
   .name("nxtupdate")
   .description("⬆️  Universal macOS package updater — auto-detects and updates everything")
-  .version("1.0.0");
+  .version("1.0.1");
 
 program
   .command("tui")
