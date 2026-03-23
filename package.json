@@ -1,0 +1,60 @@
+{
+  "name": "nxtupdate",
+  "version": "1.0.0",
+  "description": "Universal package updater for macOS - auto-detects and updates everything",
+  "type": "module",
+  "bin": {
+    "nxtupdate": "./src/cli.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "scripts": {
+    "start": "bun run src/cli.ts",
+    "dev": "bun run --watch src/cli.ts",
+    "test": "bun test",
+    "build": "bun build src/cli.ts --compile --outfile dist/nxtupdate"
+  },
+  "keywords": [
+    "macos",
+    "updater",
+    "homebrew",
+    "npm",
+    "cargo",
+    "pip",
+    "package-manager",
+    "cli",
+    "bun"
+  ],
+  "author": "scorpion7slayer",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/scorpion7slayer/NxtUpdate.git"
+  },
+  "homepage": "https://github.com/scorpion7slayer/NxtUpdate#readme",
+  "bugs": {
+    "url": "https://github.com/scorpion7slayer/NxtUpdate/issues"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.3.2",
+    "chalk": "^5.6.2",
+    "commander": "^13.1.0",
+    "ink": "^6.8.0",
+    "ink-checkbox": "^1.0.12",
+    "ink-select-input": "^6.2.0",
+    "ink-spinner": "^5.0.0",
+    "listr2": "^8.3.3",
+    "ora": "^8.2.0",
+    "react": "^19.2.4",
+    "react-devtools-core": "^7.0.1"
+  }
+}
