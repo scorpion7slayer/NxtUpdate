@@ -1,9 +1,13 @@
 import chalk from "chalk";
-import { detectInstalled, getAllDetectors } from "../detectors/index.ts";
+import { getAllDetectors } from "../detectors/index.ts";
 import { logger } from "../ui/logger.ts";
+import { showUpdateNotice } from "../ui/banner.ts";
+import { checkForUpdate } from "../utils/version.ts";
 
 export async function scanCommand() {
   console.log(chalk.bold("\n🔍 Scanning for installed package managers...\n"));
+
+  const updateInfoPromise = checkForUpdate();
 
   const all = getAllDetectors();
   const detected: string[] = [];
@@ -34,4 +38,7 @@ export async function scanCommand() {
   }
 
   console.log("");
+
+  const updateInfo = await updateInfoPromise;
+  if (updateInfo?.hasUpdate) showUpdateNotice(updateInfo);
 }

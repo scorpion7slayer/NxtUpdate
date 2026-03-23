@@ -4,6 +4,8 @@ import { select, checkbox, confirm } from "@inquirer/prompts";
 import { detectInstalled } from "../detectors/index.ts";
 import { setNoSudo } from "../detectors/macos.ts";
 import { logger } from "../ui/logger.ts";
+import { showUpdateNotice } from "../ui/banner.ts";
+import { checkForUpdate } from "../utils/version.ts";
 import type { CliOptions, UpdateResult, PackageManager, OutdatedPackage } from "../detectors/types.ts";
 
 export async function updateCommand(options: CliOptions) {
@@ -12,6 +14,8 @@ export async function updateCommand(options: CliOptions) {
   }
 
   console.log(chalk.bold("\n⬆️  NxtUpdate — Updating your system...\n"));
+
+  const updateInfoPromise = checkForUpdate();
 
   let managers = await detectInstalled();
 
@@ -50,6 +54,8 @@ export async function updateCommand(options: CliOptions) {
 
   if (withOutdated.length === 0) {
     logger.success("Everything is already up to date! 🎉\n");
+    const updateInfo = await updateInfoPromise;
+    if (updateInfo?.hasUpdate) showUpdateNotice(updateInfo);
     return;
   }
 
@@ -164,4 +170,7 @@ export async function updateCommand(options: CliOptions) {
   }
 
   console.log("");
+
+  const updateInfo = await updateInfoPromise;
+  if (updateInfo?.hasUpdate) showUpdateNotice(updateInfo);
 }
