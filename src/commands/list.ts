@@ -3,10 +3,14 @@ import { checkbox } from "@inquirer/prompts";
 import { detectInstalled } from "../detectors/index.ts";
 import { fetchPaths } from "../utils/paths.ts";
 import { logger } from "../ui/logger.ts";
+import { showUpdateNotice } from "../ui/banner.ts";
+import { checkForUpdate } from "../utils/version.ts";
 import type { CliOptions } from "../detectors/types.ts";
 
 export async function listCommand(options: CliOptions = {}) {
   console.log(chalk.bold("\n📋 Checking for outdated packages...\n"));
+
+  const updateInfoPromise = checkForUpdate();
 
   let managers = options.only
     ? (await detectInstalled()).filter(
@@ -42,7 +46,6 @@ export async function listCommand(options: CliOptions = {}) {
     try {
       const outdated = await pm.listOutdated();
       if (outdated.length > 0) {
-        // Fetch paths
         const paths = await fetchPaths(pm.name, outdated);
         for (const pkg of outdated) {
           pkg.path = paths.get(pkg.name) ?? "";
@@ -76,4 +79,7 @@ export async function listCommand(options: CliOptions = {}) {
   } else {
     console.log(chalk.yellow(`  Total: ${totalOutdated} outdated package(s)\n`));
   }
+
+  const updateInfo = await updateInfoPromise;
+  if (updateInfo?.hasUpdate) showUpdateNotice(updateInfo);
 }

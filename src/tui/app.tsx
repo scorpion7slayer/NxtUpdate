@@ -2,12 +2,15 @@ import { Box, Text, useInput, render } from "ink";
 import { useState, useEffect } from "react";
 import { detectInstalled } from "../detectors/index.ts";
 import { fetchPaths } from "../utils/paths.ts";
+import { checkForUpdate } from "../utils/version.ts";
+import { VERSION } from "../utils/version.ts";
 import { MainMenu } from "./main-menu.tsx";
 import { UpdateScreen } from "./update.tsx";
 import { ListScreen } from "./list-screen.tsx";
 import { SelectPackagesScreen } from "./select-packages.tsx";
 import { ProgressBar } from "./progress-bar.tsx";
 import type { PackageManager, OutdatedPackage, InstalledPackage, CliOptions } from "../detectors/types.ts";
+import type { UpdateInfo } from "../utils/version.ts";
 
 export type Screen = "scan" | "menu" | "update" | "list" | "select" | "uninstall-scan" | "uninstall" | "mole-tip";
 export type ManagerData = { manager: PackageManager; outdated: OutdatedPackage[] };
@@ -18,7 +21,7 @@ interface AppProps {
   startScreen?: Screen;
 }
 
-function ScanScreen({ onComplete }: { onComplete: (data: ManagerData[]) => void }) {
+function ScanScreen({ onComplete }: { onComplete: (data: ManagerData[], updateInfo: UpdateInfo | null) => void }) {
   const [status, setStatus] = useState("Detecting package managers...");
   const [detected, setDetected] = useState<string[]>([]);
   const [scanning, setScanning] = useState(false);
@@ -27,6 +30,9 @@ function ScanScreen({ onComplete }: { onComplete: (data: ManagerData[]) => void 
 
   useEffect(() => {
     (async () => {
+      // Start update check in background — won't block scan
+      const updateInfoPromise = checkForUpdate();
+
       const all = await detectInstalled();
       setDetected(all.map((pm) => `${pm.icon} ${pm.name}`));
       setStatus("Scanning for outdated packages...");
@@ -40,7 +46,6 @@ function ScanScreen({ onComplete }: { onComplete: (data: ManagerData[]) => void 
         setProgress({ current: i + 1, total: all.length });
       }
 
-      // Fetch install paths for all outdated packages
       setStatus("Fetching install paths...");
       for (const m of results) {
         if (m.outdated.length === 0) continue;
@@ -50,14 +55,18 @@ function ScanScreen({ onComplete }: { onComplete: (data: ManagerData[]) => void 
         }
       }
 
+      const updateInfo = await updateInfoPromise;
       setDone(true);
-      setTimeout(() => onComplete(results), 400);
+      setTimeout(() => onComplete(results, updateInfo), 400);
     })();
   }, []);
 
   return (
     <Box flexDirection="column" paddingX={2}>
-      <Box marginBottom={1}><Text bold color="cyan">⬆️  NxtUpdate — Universal macOS Updater</Text></Box>
+      <Box marginBottom={1} justifyContent="space-between">
+        <Text bold color="cyan">⬆️  NxtUpdate — Universal macOS Updater</Text>
+        <Text dimColor>v{VERSION}</Text>
+      </Box>
 
       {detected.length > 0 && !scanning && (
         <Box flexDirection="column" marginTop={1}>
@@ -94,7 +103,6 @@ function UninstallScanScreen({ onComplete }: { onComplete: (data: InstalledManag
         const pm = all[i]!;
         try {
           const installed = await pm.listInstalled();
-          // Fetch paths
           const paths = await fetchPaths(pm.name, installed);
           for (const pkg of installed) {
             (pkg as any).path = paths.get(pkg.name) ?? "";
@@ -153,10 +161,17 @@ export function App({ options, startScreen = "scan" }: AppProps) {
   const [managers, setManagers] = useState<ManagerData[]>([]);
   const [installedManagers, setInstalledManagers] = useState<InstalledManagerData[]>([]);
   const [selectedForUpdate, setSelectedForUpdate] = useState<ManagerData[]>([]);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
 
   useInput((input, key) => { if (key.ctrl && input === "c") process.exit(0); });
 
-  if (screen === "scan") return <ScanScreen onComplete={(data) => { setManagers(data); setScreen("menu"); }} />;
+  if (screen === "scan") {
+    return <ScanScreen onComplete={(data, info) => {
+      setManagers(data);
+      setUpdateInfo(info);
+      setScreen("menu");
+    }} />;
+  }
   if (screen === "list") return <ListScreen managers={managers} onBack={() => setScreen("menu")} />;
   if (screen === "select") {
     return <SelectPackagesScreen managers={managers} title="⬆️  Select Packages to Update"
@@ -164,7 +179,7 @@ export function App({ options, startScreen = "scan" }: AppProps) {
       onBack={() => setScreen("menu")} />;
   }
   if (screen === "menu") {
-    return <MainMenu managers={managers} options={options}
+    return <MainMenu managers={managers} options={options} updateInfo={updateInfo}
       onStartUpdate={() => setScreen("select")}
       onUninstall={() => setScreen("uninstall-scan")}
       onViewList={() => setScreen("list")}
@@ -172,7 +187,16 @@ export function App({ options, startScreen = "scan" }: AppProps) {
   }
   if (screen === "update") {
     return <UpdateScreen managers={selectedForUpdate.length > 0 ? selectedForUpdate : managers}
-      options={options} onDone={() => { setSelectedForUpdate([]); setScreen("menu"); }} />;
+      options={options}
+      onDone={(updated) => {
+        const succeeded = new Map(updated.map((u) => [u.managerName, new Set(u.pkgNames)]));
+        setManagers((prev) => prev.map((m) => ({
+          ...m,
+          outdated: m.outdated.filter((pkg) => !succeeded.get(m.manager.name)?.has(pkg.name)),
+        })));
+        setSelectedForUpdate([]);
+        setScreen("menu");
+      }} />;
   }
   if (screen === "uninstall-scan") {
     return <UninstallScanScreen onComplete={(data) => { setInstalledManagers(data); setScreen("uninstall"); }} />;
@@ -183,7 +207,7 @@ export function App({ options, startScreen = "scan" }: AppProps) {
     return <SelectPackagesScreen managers={asManagerData} title="🗑️  Select Packages to Uninstall"
       onConfirm={async (selected) => {
         for (const s of selected) { await s.manager.uninstall(options.dryRun, s.outdated.map((p) => p.name)); }
-        setScreen("menu");
+        setScreen("scan");
       }}
       onBack={() => setScreen("menu")} />;
   }
@@ -195,14 +219,12 @@ export function App({ options, startScreen = "scan" }: AppProps) {
 }
 
 export function launchTUI(options: CliOptions, startScreen?: Screen) {
-  // Enter alternate screen buffer + clear
   process.stdout.write("\x1b[?1049h\x1b[H\x1b[2J");
 
   const instance = render(<App options={options} startScreen={startScreen} />, {
     exitOnCtrlC: true,
   });
 
-  // Restore normal screen on exit
   instance.waitUntilExit().then(() => {
     process.stdout.write("\x1b[?1049l");
   });
