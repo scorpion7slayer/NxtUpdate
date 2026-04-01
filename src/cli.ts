@@ -6,13 +6,14 @@ import { scanCommand } from "./commands/scan.ts";
 import { listCommand } from "./commands/list.ts";
 import { updateCommand } from "./commands/update.ts";
 import { launchTUI } from "./tui/app.tsx";
+import { VERSION } from "./utils/version.ts";
 
 const program = new Command();
 
 program
   .name("nxtupdate")
   .description("⬆️  Universal macOS package updater — auto-detects and updates everything")
-  .version("1.0.2");
+  .version(VERSION);
 
 program
   .command("tui")

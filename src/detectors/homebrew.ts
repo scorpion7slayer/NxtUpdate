@@ -41,7 +41,10 @@ export const homebrew: PackageManager = {
 
   async update(dryRun = false, packages?: string[]): Promise<UpdateResult> {
     if (dryRun) return { manager: "Homebrew", success: true, updated: packages?.length ?? 0, output: "dry run" };
-    await exec(["brew", "update"]);
+    const updateResult = await exec(["brew", "update"]);
+    if (updateResult.exitCode !== 0) {
+      return { manager: "Homebrew", success: false, updated: 0, output: updateResult.stdout, error: updateResult.stderr || "brew update failed" };
+    }
 
     if (!packages || packages.length === 0) {
       const result = await exec(["brew", "upgrade"]);
