@@ -42,9 +42,34 @@ export const homebrew: PackageManager = {
   async update(dryRun = false, packages?: string[]): Promise<UpdateResult> {
     if (dryRun) return { manager: "Homebrew", success: true, updated: packages?.length ?? 0, output: "dry run" };
     await exec(["brew", "update"]);
-    const cmd = packages && packages.length > 0 ? ["brew", "upgrade", ...packages] : ["brew", "upgrade"];
-    const result = await exec(cmd);
-    return { manager: "Homebrew", success: result.exitCode === 0, updated: packages?.length ?? 0, output: result.stdout, error: result.exitCode !== 0 ? result.stderr : undefined };
+
+    if (!packages || packages.length === 0) {
+      const result = await exec(["brew", "upgrade"]);
+      return { manager: "Homebrew", success: result.exitCode === 0, updated: 0, output: result.stdout, error: result.exitCode !== 0 ? result.stderr : undefined };
+    }
+
+    const casks = packages.filter(p => p.endsWith(" (cask)")).map(p => p.replace(" (cask)", ""));
+    const formulae = packages.filter(p => !p.endsWith(" (cask)"));
+
+    let success = true;
+    let output = "";
+    let error = "";
+
+    if (formulae.length > 0) {
+      const result = await exec(["brew", "upgrade", ...formulae]);
+      success = success && result.exitCode === 0;
+      output += result.stdout;
+      if (result.exitCode !== 0) error += result.stderr;
+    }
+
+    if (casks.length > 0) {
+      const result = await exec(["brew", "upgrade", "--cask", ...casks]);
+      success = success && result.exitCode === 0;
+      output += result.stdout;
+      if (result.exitCode !== 0) error += result.stderr;
+    }
+
+    return { manager: "Homebrew", success, updated: packages.length, output, error: error || undefined };
   },
 
   async uninstall(dryRun = false, packages?: string[]): Promise<UpdateResult> {
