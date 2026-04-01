@@ -1,6 +1,6 @@
 {
   "name": "nxtupdate",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Universal package updater for macOS - auto-detects and updates everything",
   "type": "module",
   "bin": {
