@@ -58,15 +58,15 @@ export const homebrew: PackageManager = {
     if (formulae.length > 0) {
       const result = await exec(["brew", "upgrade", ...formulae]);
       success = success && result.exitCode === 0;
-      output += result.stdout;
-      if (result.exitCode !== 0) error += result.stderr;
+      if (result.stdout) output += (output ? "\n" : "") + result.stdout;
+      if (result.exitCode !== 0 && result.stderr) error += (error ? "\n" : "") + result.stderr;
     }
 
     if (casks.length > 0) {
       const result = await exec(["brew", "upgrade", "--cask", ...casks]);
       success = success && result.exitCode === 0;
-      output += result.stdout;
-      if (result.exitCode !== 0) error += result.stderr;
+      if (result.stdout) output += (output ? "\n" : "") + result.stdout;
+      if (result.exitCode !== 0 && result.stderr) error += (error ? "\n" : "") + result.stderr;
     }
 
     return { manager: "Homebrew", success, updated: formulae.length + casks.length, output, error: error || undefined };
