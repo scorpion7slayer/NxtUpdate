@@ -69,7 +69,7 @@ export const homebrew: PackageManager = {
       if (result.exitCode !== 0) error += result.stderr;
     }
 
-    return { manager: "Homebrew", success, updated: packages.length, output, error: error || undefined };
+    return { manager: "Homebrew", success, updated: formulae.length + casks.length, output, error: error || undefined };
   },
 
   async uninstall(dryRun = false, packages?: string[]): Promise<UpdateResult> {
