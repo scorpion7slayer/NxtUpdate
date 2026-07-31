@@ -45,7 +45,15 @@
 - [x] Confirm the GitHub remote, authentication, default branch, and existing `v1.0.x` tag convention.
 - [x] Synchronize tags and verify that local `main` matches `origin/main` before staging.
 - [x] Validate npm and Bun installs, dependency audits, tests, type checking, compiled binary, and package contents.
-- [ ] Commit the scoped 1.0.5 changes and push the release branch.
-- [ ] Merge the release pull request into `main`.
-- [ ] Create and push `v1.0.5` from the merged commit.
-- [ ] Monitor the npm publication workflow and verify the public package version.
+- [x] Commit the scoped 1.0.5 changes and push the release branch.
+- [x] Merge the release pull request into `main`.
+- [x] Create and push `v1.0.5` from the merged commit.
+- [x] Monitor the npm publication workflow and verify the public package version.
+
+### Release review
+
+- Pull request #6 merged after all three CodeQL checks passed.
+- Annotated tag `v1.0.5` resolves to merge commit `22f72ae8475730ca6e12bd1f829bff6adbec4070`.
+- GitHub Actions run `30599124825` published the package successfully.
+- The npm registry reports `nxtupdate@1.0.5` as the `latest` distribution tag.
+- GitHub reports zero open Dependabot alerts after the release.
