@@ -85,7 +85,12 @@ export async function execStream(
   return { exitCode: proc.exitCode ?? 1, lines };
 }
 
+const executableCache = new Map<string, boolean>();
+
 export function isInstalled(command: string): boolean {
-  const result = execSync(["which", command]);
-  return result.exitCode === 0;
+  const cached = executableCache.get(command);
+  if (cached !== undefined) return cached;
+  const installed = Bun.which(command) !== null;
+  executableCache.set(command, installed);
+  return installed;
 }

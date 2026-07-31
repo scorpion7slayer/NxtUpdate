@@ -40,38 +40,46 @@ export async function listCommand(options: CliOptions = {}) {
     managers = selected;
   }
 
-  let totalOutdated = 0;
-
-  for (const pm of managers) {
+  const scans = await Promise.all(managers.map(async (pm) => {
     try {
       const outdated = await pm.listOutdated();
-      if (outdated.length > 0) {
-        const paths = await fetchPaths(pm.name, outdated);
-        for (const pkg of outdated) {
-          pkg.path = paths.get(pkg.name) ?? "";
-        }
-
-        console.log(chalk.bold(`${pm.icon} ${pm.name}`) + chalk.dim(` (${outdated.length} outdated)`));
-        for (const pkg of outdated) {
-          console.log(
-            chalk.gray("  ·"),
-            chalk.bold(pkg.name),
-            chalk.dim(pkg.current),
-            chalk.yellow("→"),
-            chalk.green(pkg.latest)
-          );
-          if (pkg.path) {
-            console.log(chalk.gray("    ") + chalk.dim(pkg.path));
-          }
-        }
-        console.log("");
-        totalOutdated += outdated.length;
-      } else {
-        console.log(chalk.green(`${pm.icon} ${pm.name}`) + chalk.dim(" — up to date\n"));
+      if (outdated.length === 0) return { pm, outdated };
+      const paths = await fetchPaths(pm.name, outdated);
+      for (const pkg of outdated) {
+        pkg.path = paths.get(pkg.name) ?? "";
       }
+      return { pm, outdated };
     } catch (err) {
-      logger.error(`Failed to check ${pm.name}: ${err}`);
+      return { pm, outdated: [], error: String(err) };
     }
+  }));
+
+  let totalOutdated = 0;
+  for (const { pm, outdated, error } of scans) {
+    if (error) {
+      logger.error(`Failed to check ${pm.name}: ${error}`);
+      continue;
+    }
+    if (outdated.length === 0) {
+      console.log(chalk.green(`${pm.icon} ${pm.name}`) + chalk.dim(" — up to date\n"));
+      continue;
+    }
+
+    console.log(chalk.bold(`${pm.icon} ${pm.name}`) + chalk.dim(` (${outdated.length} outdated)`));
+    for (const pkg of outdated) {
+      console.log(
+        chalk.gray("  ·"),
+        chalk.bold(pkg.name),
+        chalk.dim(pkg.current),
+        chalk.yellow("→"),
+        chalk.green(pkg.latest)
+      );
+      if (pkg.path) {
+        console.log(chalk.gray("    ") + chalk.dim(pkg.path));
+      }
+    }
+    console.log("");
+    totalOutdated += outdated.length;
   }
 
   if (totalOutdated === 0) {

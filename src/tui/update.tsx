@@ -1,15 +1,18 @@
 import { Box, Text, Spacer, useInput } from "ink";
 import Spinner from "ink-spinner";
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ManagerData } from "./app.tsx";
 import type { CliOptions } from "../detectors/types.ts";
 import { setNoSudo } from "../detectors/macos.ts";
 import { getVersionDelta } from "../utils/version.ts";
+import { KeyHints } from "./key-hints.tsx";
+import { useTerminalSize } from "./use-terminal-size.ts";
 
 interface Props {
   managers: ManagerData[];
   options: CliOptions;
-  onDone: (updated: { managerName: string; pkgNames: string[] }[]) => void;
+  mode?: "update" | "uninstall";
+  onDone: (completed: { managerName: string; pkgNames: string[] }[]) => void;
 }
 
 type PkgStatus = "pending" | "running" | "done" | "failed";
@@ -24,76 +27,83 @@ interface PkgTask {
   error?: string;
 }
 
-interface ManagerGroup {
-  manager: ManagerData;
-  managerIdx: number;
-}
-
 const deltaColor = { MAJOR: "red", minor: "yellow", patch: "green" } as const;
 
-function formatElapsed(s: number): string {
-  const m = Math.floor(s / 60);
-  return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+function formatElapsed(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  return `${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-export function UpdateScreen({ managers, options, onDone }: Props) {
-  const withOutdated = managers.filter((m) => m.outdated.length > 0);
+export function UpdateScreen({
+  managers,
+  options,
+  mode = "update",
+  onDone,
+}: Props) {
+  const { columns, rows } = useTerminalSize();
+  const compact = columns < 96 || rows < 30;
+  const withPackages = managers.filter((manager) => manager.outdated.length > 0);
+  const started = useRef(false);
 
-  // Flat list of all individual package tasks
   const [tasks, setTasks] = useState<PkgTask[]>(() =>
-    withOutdated.flatMap((m, mi) =>
-      m.outdated.map((pkg, pi) => ({
-        managerIdx: mi, pkgIdx: pi,
-        name: pkg.name, current: pkg.current, latest: pkg.latest,
+    withPackages.flatMap((manager, managerIdx) =>
+      manager.outdated.map((pkg, pkgIdx) => ({
+        managerIdx,
+        pkgIdx,
+        name: pkg.name,
+        current: pkg.current,
+        latest: pkg.latest,
         status: "pending" as PkgStatus,
       }))
     )
   );
-
-  const groups: ManagerGroup[] = withOutdated.map((m, mi) => ({ manager: m, managerIdx: mi }));
-
   const [finished, setFinished] = useState(false);
-  const [started,  setStarted]  = useState(false);
-  const [elapsed,  setElapsed]  = useState(0);
+  const [elapsed, setElapsed] = useState(0);
 
-  if (options.noSudo) setNoSudo(true);
-
-  // Elapsed timer
   useEffect(() => {
-    const t = setInterval(() => setElapsed((e) => e + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
+    setNoSudo(Boolean(options.noSudo));
+  }, [options.noSudo]);
 
-  // Run updates — one package at a time
   useEffect(() => {
-    if (started) return;
-    setStarted(true);
+    if (finished) return;
+    const timer = setInterval(() => setElapsed((value) => value + 1), 1000);
+    return () => clearInterval(timer);
+  }, [finished]);
 
-    (async () => {
-      for (let mi = 0; mi < withOutdated.length; mi++) {
-        const m = withOutdated[mi]!;
-        for (let pi = 0; pi < m.outdated.length; pi++) {
-          const pkg = m.outdated[pi]!;
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
 
-          // Mark running
-          setTasks((prev) => prev.map((t) =>
-            t.managerIdx === mi && t.pkgIdx === pi ? { ...t, status: "running" } : t
+    void (async () => {
+      for (let managerIdx = 0; managerIdx < withPackages.length; managerIdx++) {
+        const manager = withPackages[managerIdx]!;
+        const packageNames = manager.outdated.map((pkg) => pkg.name);
+
+        setTasks((previous) => previous.map((task) =>
+          task.managerIdx === managerIdx
+            ? { ...task, status: "running", error: undefined }
+            : task
+        ));
+
+        try {
+          const result = mode === "uninstall"
+            ? await manager.manager.uninstall(options.dryRun, packageNames)
+            : await manager.manager.update(options.dryRun, packageNames);
+          setTasks((previous) => previous.map((task) =>
+            task.managerIdx === managerIdx
+              ? {
+                  ...task,
+                  status: result.success ? "done" : "failed",
+                  error: result.success ? undefined : result.error ?? "Operation failed",
+                }
+              : task
           ));
-
-          try {
-            const result = await m.manager.update(options.dryRun, [pkg.name]);
-            setTasks((prev) => prev.map((t) =>
-              t.managerIdx === mi && t.pkgIdx === pi
-                ? { ...t, status: result.success ? "done" : "failed", error: result.error }
-                : t
-            ));
-          } catch (err) {
-            setTasks((prev) => prev.map((t) =>
-              t.managerIdx === mi && t.pkgIdx === pi
-                ? { ...t, status: "failed", error: String(err) }
-                : t
-            ));
-          }
+        } catch (error) {
+          setTasks((previous) => previous.map((task) =>
+            task.managerIdx === managerIdx
+              ? { ...task, status: "failed", error: String(error) }
+              : task
+          ));
         }
       }
       setFinished(true);
@@ -101,134 +111,154 @@ export function UpdateScreen({ managers, options, onDone }: Props) {
   }, []);
 
   useInput((input, key) => {
-    if (finished && (key.return || input === "q" || key.escape)) {
-      const updated = withOutdated
-        .map((m, mi) => ({
-          managerName: m.manager.name,
-          pkgNames: tasks.filter((t) => t.managerIdx === mi && t.status === "done").map((t) => t.name),
+    if (finished && (key.return || key.escape || input === "q")) {
+      const completed = withPackages
+        .map((manager, managerIdx) => ({
+          managerName: manager.manager.name,
+          pkgNames: tasks
+            .filter((task) => task.managerIdx === managerIdx && task.status === "done")
+            .map((task) => task.name),
         }))
-        .filter((x) => x.pkgNames.length > 0);
-      onDone(updated);
+        .filter((result) => result.pkgNames.length > 0);
+      onDone(completed);
     }
   });
 
-  const totalPkgs  = tasks.length;
-  const doneCount  = tasks.filter((t) => t.status === "done").length;
-  const failCount  = tasks.filter((t) => t.status === "failed").length;
-  const donePct    = totalPkgs > 0 ? Math.round(((doneCount + failCount) / totalPkgs) * 100) : 0;
+  const totalPackages = tasks.length;
+  const doneCount = tasks.filter((task) => task.status === "done").length;
+  const failCount = tasks.filter((task) => task.status === "failed").length;
+  const completedCount = doneCount + failCount;
+  const donePct = totalPackages > 0
+    ? Math.round((completedCount / totalPackages) * 100)
+    : 0;
+  const focusTask = tasks.find((task) => task.status === "running")
+    ?? tasks.find((task) => task.status === "pending")
+    ?? tasks.at(-1);
+  const focusManagerIdx = focusTask?.managerIdx ?? 0;
+  const visibleManagers = compact
+    ? withPackages.map((manager, managerIdx) => ({ manager, managerIdx }))
+        .filter(({ managerIdx }) => managerIdx === focusManagerIdx)
+    : withPackages.map((manager, managerIdx) => ({ manager, managerIdx }));
+  const taskLimit = Math.max(3, rows - 16);
 
   return (
     <Box flexDirection="column" paddingX={1}>
-
-      {/* ── Header ── */}
       <Box marginBottom={1}>
-        <Text bold color={options.dryRun ? "yellow" : "cyan"}>
-          {options.dryRun ? "⚡ Dry Run" : "⬆️  Updating"}
+        <Text bold color={options.dryRun ? "yellow" : mode === "uninstall" ? "red" : "cyan"}>
+          {options.dryRun
+            ? `Dry run · ${mode}`
+            : mode === "uninstall"
+              ? "Removing packages"
+              : "Updating packages"}
         </Text>
-        <Text dimColor> — {totalPkgs} package(s) across {withOutdated.length} manager(s)</Text>
+        <Text> · {totalPackages} package(s) · {withPackages.length} manager(s)</Text>
         <Spacer />
-        <Text dimColor>{formatElapsed(elapsed)}</Text>
+        <Text>{formatElapsed(elapsed)}</Text>
       </Box>
 
-      {/* ── Per-manager groups ── */}
-      {groups.map(({ manager, managerIdx }) => {
-        const mgTasks = tasks.filter((t) => t.managerIdx === managerIdx);
-        const mgDone  = mgTasks.filter((t) => t.status === "done").length;
-        const mgFail  = mgTasks.filter((t) => t.status === "failed").length;
-        const mgTotal = mgTasks.length;
-        const isActive = mgTasks.some((t) => t.status === "running");
-        const isDone   = mgDone + mgFail === mgTotal;
-        const pct      = mgTotal > 0 ? Math.round(((mgDone + mgFail) / mgTotal) * 100) : 0;
-        const barWidth = 16;
-        const filled   = Math.round((pct / 100) * barWidth);
-        const bar      = "█".repeat(filled) + "░".repeat(barWidth - filled);
-        const barColor = mgFail > 0 ? "red" : isDone ? "green" : isActive ? "cyan" : "gray";
+      {compact && withPackages.length > 1 && (
+        <Box marginBottom={1}>
+          <Text>
+            Manager {Math.min(focusManagerIdx + 1, withPackages.length)}/{withPackages.length}
+          </Text>
+        </Box>
+      )}
+
+      {visibleManagers.map(({ manager, managerIdx }) => {
+        const managerTasks = tasks.filter((task) => task.managerIdx === managerIdx);
+        const managerDone = managerTasks.filter((task) => task.status === "done").length;
+        const managerFailed = managerTasks.filter((task) => task.status === "failed").length;
+        const managerCompleted = managerDone + managerFailed;
+        const managerTotal = managerTasks.length;
+        const isActive = managerTasks.some((task) => task.status === "running");
+        const isDone = managerCompleted === managerTotal;
+        const pct = managerTotal > 0
+          ? Math.round((managerCompleted / managerTotal) * 100)
+          : 0;
+        const color = managerFailed > 0
+          ? "red"
+          : isDone
+            ? "green"
+            : isActive
+              ? "cyan"
+              : "gray";
+        const visibleTasks = managerTasks.slice(0, compact ? taskLimit : managerTasks.length);
+        const firstError = managerTasks.find((task) => task.error)?.error;
 
         return (
-          <Box key={managerIdx} flexDirection="column" marginBottom={1}
-               borderStyle="round"
-               borderColor={mgFail > 0 ? "red" : isDone ? "green" : isActive ? "cyan" : "gray"}
-               paddingX={1}>
-
-            {/* Manager header row */}
-            <Box marginBottom={1}>
+          <Box
+            key={manager.manager.name}
+            flexDirection="column"
+            marginBottom={1}
+            borderStyle="single"
+            borderColor={color}
+            paddingX={1}
+          >
+            <Box>
               {isActive && !isDone
                 ? <Text color="yellow"><Spinner type="dots" /></Text>
                 : isDone
-                  ? <Text color={mgFail > 0 ? "red" : "green"}>{mgFail > 0 ? "✖" : "✔"}</Text>
-                  : <Text dimColor>○</Text>}
-              <Text bold color={isActive ? "cyan" : isDone ? (mgFail > 0 ? "red" : "green") : "white"}>
-                {" "}{manager.manager.icon} {manager.manager.name}
-              </Text>
+                  ? <Text color={managerFailed > 0 ? "red" : "green"}>{managerFailed > 0 ? "✖" : "✔"}</Text>
+                  : <Text>○</Text>}
+              <Text bold> {manager.manager.icon} {manager.manager.name}</Text>
               <Spacer />
-              <Text color={barColor}>[{bar}]</Text>
-              <Text bold color={barColor}> {pct}%</Text>
-              <Text dimColor>  {mgDone + mgFail}/{mgTotal}</Text>
+              <Text color={color}>{pct}% · {managerCompleted}/{managerTotal}</Text>
             </Box>
 
-            {/* Individual packages */}
-            {mgTasks.map((task, i) => {
-              const delta = getVersionDelta(task.current, task.latest);
-              return (
-                <Box key={i} marginLeft={2}>
-                  {/* Status icon */}
-                  <Box width={3}>
-                    {task.status === "pending" && <Text dimColor>○ </Text>}
-                    {task.status === "running" && <Text color="yellow"><Spinner type="dots" /></Text>}
-                    {task.status === "done"    && <Text color="green">✔ </Text>}
-                    {task.status === "failed"  && <Text color="red">✖ </Text>}
-                  </Box>
-
-                  {/* Package name */}
-                  <Text
-                    bold={task.status === "running"}
-                    color={task.status === "done" ? "green" : task.status === "failed" ? "red" : task.status === "running" ? "white" : "gray"}
-                  >
+            <Box flexDirection="column" marginTop={1}>
+              {visibleTasks.map((task) => {
+                const delta = mode === "update"
+                  ? getVersionDelta(task.current, task.latest)
+                  : null;
+                return (
+                  <Text key={`${task.managerIdx}-${task.pkgIdx}`} wrap="truncate-middle">
+                    {task.status === "pending" && "○ "}
+                    {task.status === "running" && "◐ "}
+                    {task.status === "done" && "✔ "}
+                    {task.status === "failed" && "✖ "}
                     {task.name}
+                    {mode === "update" && `  ${task.current} → ${task.latest}`}
+                    {delta && <Text bold color={deltaColor[delta]}> [{delta}]</Text>}
                   </Text>
-
-                  {/* Version */}
-                  <Text dimColor>  {task.current} → </Text>
-                  <Text color={task.status === "done" ? "green" : "white"}>{task.latest}</Text>
-                  <Text bold color={deltaColor[delta]}> [{delta}]</Text>
-
-                  {/* Error inline */}
-                  {task.error && (
-                    <Text color="red" dimColor>  {task.error.slice(0, 40)}</Text>
-                  )}
-                </Box>
-              );
-            })}
-
+                );
+              })}
+              {managerTasks.length > visibleTasks.length && (
+                <Text>…and {managerTasks.length - visibleTasks.length} more</Text>
+              )}
+              {firstError && (
+                <Text color="red" wrap="truncate-end">Error: {firstError}</Text>
+              )}
+            </Box>
           </Box>
         );
       })}
 
-      {/* ── Footer ── */}
       {finished ? (
-        <Box borderStyle="round" borderColor={failCount > 0 ? "red" : "green"} paddingX={1} marginTop={1}>
-          <Box flexDirection="column">
-            {options.dryRun ? (
-              <Text color="yellow">⚡ Dry run — {totalPkgs} package(s) would be updated</Text>
-            ) : (
-              <Text color={failCount > 0 ? "yellow" : "green"} bold>
-                {failCount > 0
-                  ? `⚠ ${doneCount} updated, ${failCount} failed — ${formatElapsed(elapsed)}`
-                  : `✔ ${doneCount} package(s) updated in ${formatElapsed(elapsed)}`}
-              </Text>
-            )}
-            <Box marginTop={1}>
-              <Text dimColor>enter / q  →  back to menu</Text>
-            </Box>
-          </Box>
+        <Box
+          borderStyle="single"
+          borderColor={failCount > 0 ? "red" : "green"}
+          paddingX={1}
+        >
+          <Text color={failCount > 0 ? "yellow" : options.dryRun ? "yellow" : "green"} bold>
+            {options.dryRun
+              ? `Dry run complete · ${totalPackages} package(s) checked`
+              : failCount > 0
+                ? `${doneCount} succeeded · ${failCount} failed · ${formatElapsed(elapsed)}`
+                : `${doneCount} package(s) ${mode === "uninstall" ? "removed" : "updated"} · ${formatElapsed(elapsed)}`}
+          </Text>
         </Box>
       ) : (
-        <Box marginTop={1}>
-          <Text dimColor bold>{doneCount + failCount}/{totalPkgs}</Text>
-          <Text dimColor> packages done  ({donePct}% overall)</Text>
+        <Box>
+          <Text>{completedCount}/{totalPackages} complete · {donePct}%</Text>
         </Box>
       )}
 
+      {finished && (
+        <KeyHints
+          compact={compact}
+          hints={[{ keys: "enter/esc/q", label: "back to menu" }]}
+        />
+      )}
     </Box>
   );
 }
