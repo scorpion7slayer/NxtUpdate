@@ -24,22 +24,22 @@ export async function getLatestVersion(pkg: string): Promise<string | null> {
 }
 
 export async function listOutdatedViaRegistry(): Promise<OutdatedPackage[]> {
-  const installed = await getGlobalPackages();
-  if (installed.length === 0) return [];
+  const result = await exec(["npm", "outdated", "-g", "--json"]);
+  if (!result.stdout) return [];
 
-  const checks = await Promise.allSettled(
-    installed.map(async (pkg) => {
-      const latest = await getLatestVersion(pkg.name);
-      if (latest && latest !== pkg.version) {
-        return { name: pkg.name, current: pkg.version, latest };
-      }
-      return null;
-    })
-  );
-
-  return checks
-    .filter((r): r is PromiseFulfilledResult<OutdatedPackage> =>
-      r.status === "fulfilled" && r.value !== null
-    )
-    .map((r) => r.value);
+  try {
+    const packages = JSON.parse(result.stdout) as Record<
+      string,
+      { current?: string; wanted?: string; latest?: string }
+    >;
+    return Object.entries(packages).flatMap(([name, info]) => {
+      const current = info.current ?? "";
+      const latest = info.latest ?? info.wanted ?? "";
+      return current && latest && current !== latest
+        ? [{ name, current, latest }]
+        : [];
+    });
+  } catch {
+    return [];
+  }
 }

@@ -40,14 +40,14 @@ export async function updateCommand(options: CliOptions) {
   const spinner = ora({ text: "Scanning for outdated packages...", prefixText: "  " }).start();
   const outdatedMap = new Map<PackageManager, OutdatedPackage[]>();
 
-  for (const pm of managers) {
+  const scans = await Promise.all(managers.map(async (pm) => {
     try {
-      const outdated = await pm.listOutdated();
-      outdatedMap.set(pm, outdated);
+      return { pm, outdated: await pm.listOutdated() };
     } catch {
-      outdatedMap.set(pm, []);
+      return { pm, outdated: [] };
     }
-  }
+  }));
+  scans.forEach(({ pm, outdated }) => outdatedMap.set(pm, outdated));
   spinner.stop();
 
   const withOutdated = managers.filter((pm) => (outdatedMap.get(pm)?.length ?? 0) > 0);
@@ -130,7 +130,7 @@ export async function updateCommand(options: CliOptions) {
         updSpinner.start();
       }
 
-      const result = await pm.update(options.dryRun);
+      const result = await pm.update(options.dryRun, outdated.map((pkg) => pkg.name));
       results.push(result);
 
       if (result.success) {

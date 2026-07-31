@@ -21,7 +21,7 @@ program
   .option("-d, --dry-run", "Start in dry-run mode")
   .option("--no-sudo", "Skip updates that require sudo")
   .action(async (opts) => {
-    launchTUI(opts);
+    await launchTUI(opts);
   });
 
 program
@@ -56,8 +56,8 @@ program
   });
 
 // Default: launch TUI
-program.action(() => {
-  launchTUI({});
+program.action(async () => {
+  await launchTUI({});
 });
 
-program.parse();
+await program.parseAsync();

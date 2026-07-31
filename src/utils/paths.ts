@@ -1,9 +1,17 @@
 import { exec } from "./exec.ts";
 
+let npmRootPromise: Promise<string> | null = null;
+
+async function getNpmRoot(): Promise<string> {
+  npmRootPromise ??= exec(["npm", "root", "-g"]).then((result) =>
+    result.exitCode === 0 ? result.stdout.trim() : ""
+  );
+  return npmRootPromise;
+}
+
 export async function getNpmPath(pkg: string): Promise<string> {
-  const result = await exec(["npm", "root", "-g"]);
-  if (result.exitCode !== 0 || !result.stdout) return "";
-  return result.stdout.trim() + "/" + pkg;
+  const root = await getNpmRoot();
+  return root ? `${root}/${pkg}` : "";
 }
 
 export async function getPipPath(pkg: string): Promise<string> {

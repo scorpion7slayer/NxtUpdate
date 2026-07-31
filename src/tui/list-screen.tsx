@@ -1,7 +1,10 @@
 import { Box, Text, Spacer, useInput } from "ink";
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import type { ManagerData } from "./app.tsx";
 import { getVersionDelta } from "../utils/version.ts";
+import { KeyHints } from "./key-hints.tsx";
+import { getViewportRows, useTerminalSize } from "./use-terminal-size.ts";
+import { usePackagePath } from "./use-package-path.ts";
 
 interface Props {
   managers: ManagerData[];
@@ -12,16 +15,21 @@ type FlatItem =
   | { type: "manager"; index: number; manager: ManagerData }
   | { type: "package"; managerIdx: number; pkgIdx: number; name: string; current: string; latest: string; path: string };
 
-const VISIBLE = 18;
 const deltaColor = { MAJOR: "red", minor: "yellow", patch: "green" } as const;
 
 export function ListScreen({ managers, onBack }: Props) {
+  const { columns, rows } = useTerminalSize();
+  const compact = columns < 96 || rows < 28;
+  const visibleCount = getViewportRows(rows, compact ? 7 : 8, 20);
   const [expanded, setExpanded] = useState<Set<number>>(
     () => new Set(managers.filter((m) => m.outdated.length > 0).map((_, i) => i))
   );
   const [nav, setNav] = useState({ cursor: 0, scroll: 0 });
 
-  const withOutdated  = managers.filter((m) => m.outdated.length > 0);
+  const withOutdated = useMemo(
+    () => managers.filter((manager) => manager.outdated.length > 0),
+    [managers]
+  );
   const totalOutdated = withOutdated.reduce((s, m) => s + m.outdated.length, 0);
 
   const flatItems: FlatItem[] = useMemo(() => {
@@ -37,11 +45,35 @@ export function ListScreen({ managers, onBack }: Props) {
     return items;
   }, [withOutdated, expanded]);
 
-  const clamp  = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  const activeItem = flatItems[nav.cursor];
+  const activeManager = activeItem?.type === "package"
+    ? withOutdated[activeItem.managerIdx]
+    : undefined;
+  const activePath = usePackagePath(
+    activeManager?.manager.name,
+    activeItem?.type === "package" ? activeItem.name : undefined,
+    activeItem?.type === "package" ? activeItem.path : ""
+  );
+
   const moveTo = (next: number) => {
-    const c = clamp(next, 0, Math.max(0, flatItems.length - 1));
-    setNav({ cursor: c, scroll: c < nav.scroll ? c : c >= nav.scroll + VISIBLE ? c - VISIBLE + 1 : nav.scroll });
+    setNav((previous) => {
+      const cursor = Math.max(0, Math.min(next, Math.max(0, flatItems.length - 1)));
+      const scroll = cursor < previous.scroll
+        ? cursor
+        : cursor >= previous.scroll + visibleCount
+          ? cursor - visibleCount + 1
+          : previous.scroll;
+      return { cursor, scroll };
+    });
   };
+
+  useEffect(() => {
+    setNav((previous) => {
+      const cursor = Math.min(previous.cursor, Math.max(0, flatItems.length - 1));
+      const maxScroll = Math.max(0, flatItems.length - visibleCount);
+      return { cursor, scroll: Math.min(previous.scroll, maxScroll) };
+    });
+  }, [flatItems.length, visibleCount]);
 
   useInput((input, key) => {
     const item = flatItems[nav.cursor];
@@ -70,9 +102,9 @@ export function ListScreen({ managers, onBack }: Props) {
     }
   });
 
-  const visible  = flatItems.slice(nav.scroll, nav.scroll + VISIBLE);
+  const visible  = flatItems.slice(nav.scroll, nav.scroll + visibleCount);
   const showUp   = nav.scroll > 0;
-  const showDown = nav.scroll + VISIBLE < flatItems.length;
+  const showDown = nav.scroll + visibleCount < flatItems.length;
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -88,7 +120,7 @@ export function ListScreen({ managers, onBack }: Props) {
       </Box>
 
       {withOutdated.length === 0 && (
-        <Box borderStyle="round" borderColor="green" paddingX={1}>
+        <Box borderStyle="single" borderColor="green" paddingX={1}>
           <Text color="green">✔ Everything is up to date!</Text>
         </Box>
       )}
@@ -96,7 +128,7 @@ export function ListScreen({ managers, onBack }: Props) {
       {showUp && <Box><Text color="yellow" dimColor>  ↑ {nav.scroll} more above</Text></Box>}
 
       {/* ── List ── */}
-      <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1}>
+      <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
         {visible.map((item, vi) => {
           const isCur = nav.scroll + vi === nav.cursor;
 
@@ -105,7 +137,7 @@ export function ListScreen({ managers, onBack }: Props) {
             const hasMajor = m.outdated.some((p) => getVersionDelta(p.current, p.latest) === "MAJOR");
             return (
               <Box key={`m-${item.index}`}>
-                <Text inverse={isCur} bold>
+                <Text inverse={isCur} bold wrap="truncate-end">
                   {isCur ? " > " : "   "}
                   {expanded.has(item.index) ? "▼ " : "▶ "}
                   {m.manager.icon} {m.manager.name}
@@ -118,18 +150,20 @@ export function ListScreen({ managers, onBack }: Props) {
 
           const delta = getVersionDelta(item.current, item.latest);
           return (
-            <Box key={`p-${item.managerIdx}-${item.pkgIdx}`} marginLeft={4} flexDirection="column">
+            <Box key={`p-${item.managerIdx}-${item.pkgIdx}`} marginLeft={compact ? 2 : 4} flexDirection="column">
               <Box>
-                <Text inverse={isCur} color={isCur ? undefined : "gray"}>
+                <Text inverse={isCur} color={isCur ? undefined : "gray"} wrap="truncate-middle">
                   {isCur ? " > " : "   "}
                   {item.name}
                   {"  "}{item.current}{" → "}{item.latest}{"  "}
                 </Text>
                 <Text bold color={deltaColor[delta]}> [{delta}]</Text>
               </Box>
-              {item.path && isCur && (
+              {isCur && (activePath.loading || activePath.path) && (
                 <Box marginLeft={5}>
-                  <Text dimColor>{item.path}</Text>
+                  <Text wrap="truncate-middle">
+                    {activePath.loading ? "Resolving install location…" : activePath.path}
+                  </Text>
                 </Box>
               )}
             </Box>
@@ -137,15 +171,17 @@ export function ListScreen({ managers, onBack }: Props) {
         })}
       </Box>
 
-      {showDown && <Box><Text color="yellow" dimColor>  ↓ {flatItems.length - nav.scroll - VISIBLE} more below</Text></Box>}
+      {showDown && <Box><Text>  ↓ {flatItems.length - nav.scroll - visibleCount} more below</Text></Box>}
 
-      {/* ── Footer ── */}
-      <Box marginTop={1} gap={2}>
-        <Text dimColor>[↑↓]/[jk]  move</Text>
-        <Text dimColor>[→]/[enter]  expand</Text>
-        <Text dimColor>[←]  collapse</Text>
-        <Text dimColor>[q]  back</Text>
-      </Box>
+      <KeyHints
+        compact={compact}
+        hints={[
+          { keys: "↑↓/jk", label: "move" },
+          { keys: "enter/→", label: "expand" },
+          { keys: "←", label: "collapse/back" },
+          { keys: "esc/q", label: "back" },
+        ]}
+      />
 
     </Box>
   );

@@ -10,21 +10,19 @@ export async function scanCommand() {
   const updateInfoPromise = checkForUpdate();
 
   const all = getAllDetectors();
-  const detected: string[] = [];
-  const notFound: string[] = [];
-
-  for (const pm of all) {
+  const checks = await Promise.all(all.map(async (pm) => {
     try {
-      const found = await pm.detect();
-      if (found) {
-        detected.push(`${pm.icon} ${chalk.bold(pm.name)} ${chalk.dim(`(${pm.command})`)}`);
-      } else {
-        notFound.push(pm.name);
-      }
+      return { pm, found: await pm.detect() };
     } catch {
-      notFound.push(pm.name);
+      return { pm, found: false };
     }
-  }
+  }));
+  const detected = checks
+    .filter((check) => check.found)
+    .map(({ pm }) => `${pm.icon} ${chalk.bold(pm.name)} ${chalk.dim(`(${pm.command})`)}`);
+  const notFound = checks
+    .filter((check) => !check.found)
+    .map(({ pm }) => pm.name);
 
   if (detected.length > 0) {
     logger.success(`Found ${detected.length} package manager(s):`);
