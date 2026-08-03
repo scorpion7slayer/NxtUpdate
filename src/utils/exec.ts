@@ -1,6 +1,49 @@
+export interface ExecOptions {
+  cwd?: string;
+  env?: Record<string, string>;
+  timeout?: number;
+  onLine?: (line: string) => void;
+}
+
+async function readStream(
+  stream: ReadableStream<Uint8Array>,
+  onLine?: (line: string) => void,
+): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let output = "";
+  let buffer = "";
+
+  const emitCompleteLines = () => {
+    const parts = buffer.split(/[\r\n]+/);
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      const line = part.trim();
+      if (line) onLine?.(line);
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const text = decoder.decode(value, { stream: true });
+    output += text;
+    buffer += text;
+    emitCompleteLines();
+  }
+
+  const tail = decoder.decode();
+  output += tail;
+  buffer += tail;
+  const finalLine = buffer.trim();
+  if (finalLine) onLine?.(finalLine);
+
+  return output.trim();
+}
+
 export async function exec(
   command: string[],
-  options?: { cwd?: string; env?: Record<string, string>; timeout?: number }
+  options?: ExecOptions,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const proc = Bun.spawn(command, {
     cwd: options?.cwd,
@@ -11,15 +54,15 @@ export async function exec(
   });
 
   const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
+    readStream(proc.stdout, options?.onLine),
+    readStream(proc.stderr, options?.onLine),
   ]);
 
   await proc.exited;
 
   return {
-    stdout: stdout.trim(),
-    stderr: stderr.trim(),
+    stdout,
+    stderr,
     exitCode: proc.exitCode ?? 1,
   };
 }
@@ -44,45 +87,15 @@ export async function execStream(
   onLine: (line: string) => void,
   options?: { cwd?: string }
 ): Promise<{ exitCode: number; lines: string[] }> {
-  const proc = Bun.spawn(command, {
-    cwd: options?.cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
   const lines: string[] = [];
-  const decoder = new TextDecoder();
-
-  const streamToLines = async (stream: ReadableStream) => {
-    const reader = stream.getReader();
-    let buffer = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split("\n");
-      buffer = parts.pop() ?? "";
-      for (const line of parts) {
-        const trimmed = line.trim();
-        if (trimmed) {
-          lines.push(trimmed);
-          onLine(trimmed);
-        }
-      }
-    }
-    if (buffer.trim()) {
-      lines.push(buffer.trim());
-      onLine(buffer.trim());
-    }
-  };
-
-  await Promise.all([
-    streamToLines(proc.stdout),
-    streamToLines(proc.stderr),
-  ]);
-
-  await proc.exited;
-  return { exitCode: proc.exitCode ?? 1, lines };
+  const result = await exec(command, {
+    cwd: options?.cwd,
+    onLine: (line) => {
+      lines.push(line);
+      onLine(line);
+    },
+  });
+  return { exitCode: result.exitCode, lines };
 }
 
 const executableCache = new Map<string, boolean>();

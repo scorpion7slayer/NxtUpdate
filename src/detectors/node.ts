@@ -1,4 +1,4 @@
-import type { PackageManager, OutdatedPackage, InstalledPackage, UpdateResult } from "./types.ts";
+import type { PackageManager, OutdatedPackage, InstalledPackage, UpdateResult, ProgressReporter } from "./types.ts";
 import { exec, isInstalled } from "../utils/exec.ts";
 import { listOutdatedViaRegistry, getGlobalPackages } from "../utils/registry.ts";
 
@@ -57,20 +57,22 @@ export const node: PackageManager = {
     return getGlobalPackages();
   },
 
-  async update(dryRun = false, packages?: string[]): Promise<UpdateResult> {
+  async update(dryRun = false, packages?: string[], onProgress?: ProgressReporter): Promise<UpdateResult> {
     const pm = detectPrimaryPM() ?? "npm";
     if (dryRun) return { manager: "Node", success: true, updated: packages?.length ?? 0, output: "dry run" };
     const cmd = cmdFor(pm, "update", packages);
-    const result = await exec(cmd);
+    onProgress?.(`Downloading and installing ${packages?.length ?? "global"} Node package(s) with ${pm}…`);
+    const result = await exec(cmd, { onLine: onProgress });
     return { manager: "Node", success: result.exitCode === 0, updated: packages?.length ?? 0, output: result.stdout, error: result.exitCode !== 0 ? result.stderr : undefined };
   },
 
-  async uninstall(dryRun = false, packages?: string[]): Promise<UpdateResult> {
+  async uninstall(dryRun = false, packages?: string[], onProgress?: ProgressReporter): Promise<UpdateResult> {
     if (!packages?.length) return { manager: "Node", success: true, updated: 0, output: "Nothing to uninstall" };
     const pm = detectPrimaryPM() ?? "npm";
     if (dryRun) return { manager: "Node", success: true, updated: packages.length, output: "dry run" };
     const cmd = cmdFor(pm, "uninstall", packages);
-    const result = await exec(cmd);
+    onProgress?.(`Removing ${packages.length} Node package(s) with ${pm}…`);
+    const result = await exec(cmd, { onLine: onProgress });
     return { manager: "Node", success: result.exitCode === 0, updated: packages.length, output: result.stdout, error: result.exitCode !== 0 ? result.stderr : undefined };
   },
 };

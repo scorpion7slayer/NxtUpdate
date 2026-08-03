@@ -1,4 +1,4 @@
-import type { PackageManager, OutdatedPackage, InstalledPackage, UpdateResult } from "./types.ts";
+import type { PackageManager, OutdatedPackage, InstalledPackage, UpdateResult, ProgressReporter } from "./types.ts";
 import { exec, isInstalled } from "../utils/exec.ts";
 
 export const homebrew: PackageManager = {
@@ -39,15 +39,17 @@ export const homebrew: PackageManager = {
     });
   },
 
-  async update(dryRun = false, packages?: string[]): Promise<UpdateResult> {
+  async update(dryRun = false, packages?: string[], onProgress?: ProgressReporter): Promise<UpdateResult> {
     if (dryRun) return { manager: "Homebrew", success: true, updated: packages?.length ?? 0, output: "dry run" };
-    const updateResult = await exec(["brew", "update"]);
+    onProgress?.("Refreshing Homebrew metadata…");
+    const updateResult = await exec(["brew", "update"], { onLine: onProgress });
     if (updateResult.exitCode !== 0) {
       return { manager: "Homebrew", success: false, updated: 0, output: updateResult.stdout, error: updateResult.stderr || "brew update failed" };
     }
 
     if (!packages || packages.length === 0) {
-      const result = await exec(["brew", "upgrade"]);
+      onProgress?.("Downloading and installing Homebrew updates…");
+      const result = await exec(["brew", "upgrade"], { onLine: onProgress });
       return { manager: "Homebrew", success: result.exitCode === 0, updated: 0, output: result.stdout, error: result.exitCode !== 0 ? result.stderr : undefined };
     }
 
@@ -59,14 +61,16 @@ export const homebrew: PackageManager = {
     let error = "";
 
     if (formulae.length > 0) {
-      const result = await exec(["brew", "upgrade", ...formulae]);
+      onProgress?.(`Downloading and installing ${formulae.length} Homebrew formula(e)…`);
+      const result = await exec(["brew", "upgrade", ...formulae], { onLine: onProgress });
       success = success && result.exitCode === 0;
       if (result.stdout) output += (output ? "\n" : "") + result.stdout;
       if (result.exitCode !== 0 && result.stderr) error += (error ? "\n" : "") + result.stderr;
     }
 
     if (casks.length > 0) {
-      const result = await exec(["brew", "upgrade", "--cask", ...casks]);
+      onProgress?.(`Downloading and installing ${casks.length} Homebrew cask(s)…`);
+      const result = await exec(["brew", "upgrade", "--cask", ...casks], { onLine: onProgress });
       success = success && result.exitCode === 0;
       if (result.stdout) output += (output ? "\n" : "") + result.stdout;
       if (result.exitCode !== 0 && result.stderr) error += (error ? "\n" : "") + result.stderr;
@@ -75,10 +79,11 @@ export const homebrew: PackageManager = {
     return { manager: "Homebrew", success, updated: formulae.length + casks.length, output, error: error || undefined };
   },
 
-  async uninstall(dryRun = false, packages?: string[]): Promise<UpdateResult> {
+  async uninstall(dryRun = false, packages?: string[], onProgress?: ProgressReporter): Promise<UpdateResult> {
     if (!packages?.length) return { manager: "Homebrew", success: true, updated: 0, output: "Nothing to uninstall" };
     if (dryRun) return { manager: "Homebrew", success: true, updated: packages.length, output: "dry run" };
-    const result = await exec(["brew", "uninstall", ...packages]);
+    onProgress?.(`Removing ${packages.length} Homebrew package(s)…`);
+    const result = await exec(["brew", "uninstall", ...packages], { onLine: onProgress });
     return { manager: "Homebrew", success: result.exitCode === 0, updated: packages.length, output: result.stdout, error: result.exitCode !== 0 ? result.stderr : undefined };
   },
 };

@@ -20,7 +20,6 @@ const deltaColor = { MAJOR: "red", minor: "yellow", patch: "green" } as const;
 export function ListScreen({ managers, onBack }: Props) {
   const { columns, rows } = useTerminalSize();
   const compact = columns < 96 || rows < 28;
-  const visibleCount = getViewportRows(rows, compact ? 7 : 8, 20);
   const [expanded, setExpanded] = useState<Set<number>>(
     () => new Set(managers.filter((m) => m.outdated.length > 0).map((_, i) => i))
   );
@@ -29,6 +28,16 @@ export function ListScreen({ managers, onBack }: Props) {
   const withOutdated = useMemo(
     () => managers.filter((manager) => manager.outdated.length > 0),
     [managers]
+  );
+  const skipped = useMemo(
+    () => managers.filter((manager) => manager.manager.skipReason),
+    [managers]
+  );
+  const skippedPanelRows = skipped.length > 0 ? skipped.length + 3 : 0;
+  const visibleCount = getViewportRows(
+    rows,
+    (compact ? 7 : 8) + skippedPanelRows,
+    20,
   );
   const totalOutdated = withOutdated.reduce((s, m) => s + m.outdated.length, 0);
 
@@ -119,68 +128,85 @@ export function ListScreen({ managers, onBack }: Props) {
         <Text dimColor> manager(s)</Text>
       </Box>
 
-      {withOutdated.length === 0 && (
+      {withOutdated.length === 0 && skipped.length === 0 && (
         <Box borderStyle="single" borderColor="green" paddingX={1}>
           <Text color="green">✔ Everything is up to date!</Text>
+        </Box>
+      )}
+
+      {skipped.length > 0 && (
+        <Box flexDirection="column" borderStyle="single" borderColor="yellow" paddingX={1}>
+          {withOutdated.length === 0 && (
+            <Text color="yellow" bold>✔ No actionable updates</Text>
+          )}
+          {skipped.map((manager) => (
+            <Text key={manager.manager.name} color="yellow" wrap="truncate-end">
+              ○ {manager.manager.name} skipped · {manager.manager.skipReason}
+            </Text>
+          ))}
         </Box>
       )}
 
       {showUp && <Box><Text color="yellow" dimColor>  ↑ {nav.scroll} more above</Text></Box>}
 
       {/* ── List ── */}
-      <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
-        {visible.map((item, vi) => {
-          const isCur = nav.scroll + vi === nav.cursor;
+      {flatItems.length > 0 && (
+        <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
+          {visible.map((item, vi) => {
+            const isCur = nav.scroll + vi === nav.cursor;
 
-          if (item.type === "manager") {
-            const m = item.manager;
-            const hasMajor = m.outdated.some((p) => getVersionDelta(p.current, p.latest) === "MAJOR");
+            if (item.type === "manager") {
+              const m = item.manager;
+              const hasMajor = m.outdated.some((p) => getVersionDelta(p.current, p.latest) === "MAJOR");
+              return (
+                <Box key={`m-${item.index}`}>
+                  <Text inverse={isCur} bold wrap="truncate-end">
+                    {isCur ? " > " : "   "}
+                    {expanded.has(item.index) ? "▼ " : "▶ "}
+                    {m.manager.icon} {m.manager.name}
+                    {"  "}{m.outdated.length} pkg(s){"  "}
+                  </Text>
+                  {hasMajor && <Text color="red" bold> ⚠ MAJOR</Text>}
+                </Box>
+              );
+            }
+
+            const delta = getVersionDelta(item.current, item.latest);
             return (
-              <Box key={`m-${item.index}`}>
-                <Text inverse={isCur} bold wrap="truncate-end">
-                  {isCur ? " > " : "   "}
-                  {expanded.has(item.index) ? "▼ " : "▶ "}
-                  {m.manager.icon} {m.manager.name}
-                  {"  "}{m.outdated.length} pkg(s){"  "}
-                </Text>
-                {hasMajor && <Text color="red" bold> ⚠ MAJOR</Text>}
+              <Box key={`p-${item.managerIdx}-${item.pkgIdx}`} marginLeft={compact ? 2 : 4} flexDirection="column">
+                <Box>
+                  <Text inverse={isCur} color={isCur ? undefined : "gray"} wrap="truncate-middle">
+                    {isCur ? " > " : "   "}
+                    {item.name}
+                    {"  "}{item.current}{" → "}{item.latest}{"  "}
+                  </Text>
+                  <Text bold color={deltaColor[delta]}> [{delta}]</Text>
+                </Box>
+                {isCur && (activePath.loading || activePath.path) && (
+                  <Box marginLeft={5}>
+                    <Text wrap="truncate-middle">
+                      {activePath.loading ? "Resolving install location…" : activePath.path}
+                    </Text>
+                  </Box>
+                )}
               </Box>
             );
-          }
-
-          const delta = getVersionDelta(item.current, item.latest);
-          return (
-            <Box key={`p-${item.managerIdx}-${item.pkgIdx}`} marginLeft={compact ? 2 : 4} flexDirection="column">
-              <Box>
-                <Text inverse={isCur} color={isCur ? undefined : "gray"} wrap="truncate-middle">
-                  {isCur ? " > " : "   "}
-                  {item.name}
-                  {"  "}{item.current}{" → "}{item.latest}{"  "}
-                </Text>
-                <Text bold color={deltaColor[delta]}> [{delta}]</Text>
-              </Box>
-              {isCur && (activePath.loading || activePath.path) && (
-                <Box marginLeft={5}>
-                  <Text wrap="truncate-middle">
-                    {activePath.loading ? "Resolving install location…" : activePath.path}
-                  </Text>
-                </Box>
-              )}
-            </Box>
-          );
-        })}
-      </Box>
+          })}
+        </Box>
+      )}
 
       {showDown && <Box><Text>  ↓ {flatItems.length - nav.scroll - visibleCount} more below</Text></Box>}
 
       <KeyHints
         compact={compact}
-        hints={[
-          { keys: "↑↓/jk", label: "move" },
-          { keys: "enter/→", label: "expand" },
-          { keys: "←", label: "collapse/back" },
-          { keys: "esc/q", label: "back" },
-        ]}
+        hints={flatItems.length > 0
+          ? [
+              { keys: "↑↓/jk", label: "move" },
+              { keys: "enter/→", label: "expand" },
+              { keys: "←", label: "collapse/back" },
+              { keys: "esc/q", label: "back" },
+            ]
+          : [{ keys: "esc/q", label: "back" }]}
       />
 
     </Box>

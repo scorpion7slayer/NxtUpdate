@@ -18,15 +18,18 @@ export interface UpdateResult {
   error?: string;
 }
 
+export type ProgressReporter = (message: string) => void;
+
 export interface PackageManager {
   name: string;
   command: string;
   icon: string;
+  skipReason?: string;
   detect(): Promise<boolean>;
   listOutdated(): Promise<OutdatedPackage[]>;
   listInstalled(): Promise<InstalledPackage[]>;
-  update(dryRun?: boolean, packages?: string[]): Promise<UpdateResult>;
-  uninstall(dryRun?: boolean, packages?: string[]): Promise<UpdateResult>;
+  update(dryRun?: boolean, packages?: string[], onProgress?: ProgressReporter): Promise<UpdateResult>;
+  uninstall(dryRun?: boolean, packages?: string[], onProgress?: ProgressReporter): Promise<UpdateResult>;
 }
 
 export interface CliOptions {

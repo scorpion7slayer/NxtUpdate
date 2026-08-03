@@ -57,3 +57,73 @@
 - GitHub Actions run `30599124825` published the package successfully.
 - The npm registry reports `nxtupdate@1.0.5` as the `latest` distribution tag.
 - GitHub reports zero open Dependabot alerts after the release.
+
+## Live update progress
+
+### Plan
+
+- [x] Reproduce and trace the update screen's jump from 0% to completion.
+- [x] Add a deterministic regression test for progress emitted during a long-running manager command.
+- [x] Stream native package-manager activity into the TUI while keeping batched updates.
+- [x] Keep the progress language honest when a manager cannot expose a numeric download percentage.
+- [x] Verify the focused tests, full test suite, type checking, compiled binary, and PTY rendering.
+
+### Review
+
+- Root cause: package-manager output was buffered until exit while every package in a manager batch changed state together, forcing the UI from 0% directly to 100%.
+- `exec` now emits newline and carriage-return progress without changing its collected stdout/stderr result; stdout and stderr use independent streaming decoders.
+- Homebrew, Node, pip, Cargo, and macOS updates forward their native activity to the TUI. The active manager shows a spinner, its latest sanitized line, elapsed time, and a clearly labelled finished-package count instead of a fabricated download percentage.
+- Batched manager commands are preserved, so the feedback does not reintroduce repeated `brew update` calls or slow per-package execution.
+- Regression coverage proves a carriage-return download event arrives before subprocess exit and appears in an 80×24 Ink render before the batched update resolves.
+- Final verification: 9 interface/streaming tests pass, TypeScript passes, `git diff --check` passes, the standalone binary compiles and reports `1.0.5`, and a real PTY shows `Downloading` → `Installing` → final success with animated spinners.
+
+## Externally managed Python environments
+
+### Plan
+
+- [x] Reproduce the mismatch between successful `pip list` and blocked `pip install`.
+- [x] Add a side-effect-free pip capability probe that works without network access.
+- [x] Hide Python packages from update and uninstall flows when pip cannot modify its environment.
+- [x] Preserve support for mutable global Python installations and explicit user overrides.
+- [x] Add deterministic regression coverage and update the manager documentation.
+- [x] Verify the full test suite, TypeScript, compiled binary, real scan, and diff quality.
+
+### Review
+
+- Local reproduction confirmed that `pip3 list --outdated` reports `pip 26.1.2 → 26.2` while the same Homebrew Python rejects even a no-network dry-run with `externally-managed-environment`.
+- The Python manager now runs one cached `pip install --dry-run --no-index --disable-pip-version-check pip` capability probe before listing or mutating packages.
+- PEP 668 environments return no update/uninstall candidates, and direct update or uninstall calls fail closed without running a mutating command. NxtUpdate never supplies `--break-system-packages`.
+- A generic manager `skipReason` keeps the result truthful: CLI scan/list/update and the TUI distinguish `skipped` from `up to date` and report that Homebrew, pipx, or a virtual environment should own the packages.
+- Mutable pip environments retain outdated-package parsing, dry-run behavior, native progress streaming, updates, and removals.
+- Final verification: 13 tests pass, TypeScript passes, `git diff --check` passes, the standalone `1.0.5` binary compiles, and real compiled scan/list/update-dry-run commands identify the local Homebrew Python as `skipped: externally managed (PEP 668)` without attempting a package mutation.
+
+## Empty outdated-list access
+
+### Plan
+
+- [x] Disable only the update action when there are no actionable updates.
+- [x] Keep the outdated-list action selectable for empty and skipped states.
+- [x] Render skipped managers and simplified navigation in the empty list.
+- [x] Verify 80×24 rendering, tests, TypeScript, and build.
+
+### Review
+
+- Root cause: `isDisabled` incorrectly grouped the informational outdated-list action with the mutating update action whenever the actionable count was zero.
+- Only `Update packages` is now disabled at zero. `View outdated list` remains selectable and renders either the real empty state or skipped-manager explanations.
+- Empty-list navigation now shows only the relevant back shortcut, and the skipped panel is included in viewport budgeting.
+- Final verification: 15 tests pass, including empty and mixed skipped/outdated 80×24 fixtures; TypeScript, compiled `1.0.5` build, and `git diff --check` pass.
+
+## Release 1.0.6
+
+- [x] Audit the local change scope, GitHub authentication, remote synchronization, tag convention, and npm version.
+- [x] Update every release version surface to `1.0.6`.
+- [x] Prevent an older public npm version from being advertised as an available update by the newer release binary.
+- [x] Validate frozen installs, dependency audits, tests, type checking, compiled binary, and npm package contents.
+- [ ] Commit the scoped changes and push the release branch.
+- [ ] Merge the release pull request after required checks pass.
+- [ ] Create and push annotated tag `v1.0.6` from the merged release commit.
+- [ ] Monitor the npm publication workflow and verify the public GitHub/npm state.
+
+### Release review
+
+- Pending publication.

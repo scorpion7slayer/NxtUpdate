@@ -19,7 +19,11 @@ interface Props {
   onViewMoleTip: () => void;
 }
 
-type MenuAction = "update" | "uninstall" | "mole-tip" | "list" | "quit";
+export type MenuAction = "update" | "uninstall" | "mole-tip" | "list" | "quit";
+
+export function isMenuActionDisabled(action: MenuAction | undefined, totalOutdated: number): boolean {
+  return totalOutdated === 0 && action === "update";
+}
 
 const menuItems: { label: string; action: MenuAction; icon: string; hint: string; key: string }[] = [
   { label: "Update packages",       action: "update",    icon: "↑", hint: "Select and update outdated packages", key: "u" },
@@ -46,12 +50,15 @@ export function MainMenu({
   const { columns, rows } = useTerminalSize();
   const compact = columns < 96 || rows < 28;
   const withOutdated = managers.filter((manager) => manager.outdated.length > 0);
-  const upToDate = managers.filter((manager) => manager.outdated.length === 0);
+  const skipped = managers.filter((manager) => manager.manager.skipReason);
+  const upToDate = managers.filter(
+    (manager) => manager.outdated.length === 0 && !manager.manager.skipReason
+  );
   const totalOutdated = withOutdated.reduce((sum, manager) => sum + manager.outdated.length, 0);
 
   const isDisabled = (index: number) => {
     const action = menuItems[index]?.action;
-    return totalOutdated === 0 && (action === "update" || action === "list");
+    return isMenuActionDisabled(action, totalOutdated);
   };
 
   const moveSelection = (direction: -1 | 1) => {
@@ -147,7 +154,6 @@ export function MainMenu({
                     {item.icon} {item.label}
                   </Text>
                   {!active && <Text color={disabled ? "gray" : undefined}> [{item.key}]</Text>}
-                  {disabled && <Text color="gray"> unavailable</Text>}
                 </Box>
               );
             })}
@@ -179,7 +185,9 @@ export function MainMenu({
                 {" manager(s)"}
               </Text>
             ) : (
-              <Text color="green" bold>✔ Everything is up to date</Text>
+              <Text color="green" bold>
+                {skipped.length > 0 ? "✔ No actionable updates" : "✔ Everything is up to date"}
+              </Text>
             )}
           </Box>
 
@@ -208,6 +216,16 @@ export function MainMenu({
           {upToDate.length > 0 && (
             <Box marginTop={compact ? 0 : 1}>
               <Text color="green">✔ {upToDate.length} manager(s) current</Text>
+            </Box>
+          )}
+
+          {skipped.length > 0 && (
+            <Box marginTop={compact ? 0 : 1} flexDirection="column">
+              {skipped.map((manager) => (
+                <Text key={manager.manager.name} color="yellow" wrap="truncate-end">
+                  ○ {manager.manager.name} skipped · {manager.manager.skipReason}
+                </Text>
+              ))}
             </Box>
           )}
         </Box>

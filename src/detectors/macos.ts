@@ -1,4 +1,4 @@
-import type { PackageManager, OutdatedPackage, InstalledPackage, UpdateResult } from "./types.ts";
+import type { PackageManager, OutdatedPackage, InstalledPackage, UpdateResult, ProgressReporter } from "./types.ts";
 import { exec, isInstalled } from "../utils/exec.ts";
 import { runSudo } from "../utils/sudo.ts";
 
@@ -43,12 +43,13 @@ export const macos: PackageManager = {
     return [];
   },
 
-  async update(dryRun = false, packages?: string[]): Promise<UpdateResult> {
+  async update(dryRun = false, packages?: string[], onProgress?: ProgressReporter): Promise<UpdateResult> {
     if (dryRun) return { manager: "macOS System", success: true, updated: packages?.length ?? 0, output: "dry run" };
     const cmd = packages && packages.length > 0
       ? ["softwareupdate", "--install", ...packages]
       : ["softwareupdate", "--install", "--all", "--restart"];
-    const result = await runSudo(cmd, noSudoGlobal);
+    onProgress?.(`Downloading and installing ${packages?.length ?? "all"} macOS update(s)…`);
+    const result = await runSudo(cmd, noSudoGlobal, { onLine: onProgress });
     return { manager: "macOS System", success: result.exitCode === 0, updated: packages?.length ?? 0, output: result.stdout, error: result.exitCode !== 0 ? result.stderr : undefined };
   },
 

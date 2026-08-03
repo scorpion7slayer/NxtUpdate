@@ -17,6 +17,19 @@ interface Props {
 
 type PkgStatus = "pending" | "running" | "done" | "failed";
 
+const ANSI_OSC_PATTERN = /\u001B\][^\u0007]*(?:\u0007|\u001B\\)/g;
+const ANSI_CSI_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]/g;
+const CONTROL_PATTERN = /[\u0000-\u0008\u000B-\u001F\u007F]/g;
+
+export function normalizeProgressMessage(message: string): string {
+  return message
+    .replace(ANSI_OSC_PATTERN, "")
+    .replace(ANSI_CSI_PATTERN, "")
+    .replace(CONTROL_PATTERN, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 interface PkgTask {
   managerIdx: number;
   pkgIdx: number;
@@ -59,6 +72,7 @@ export function UpdateScreen({
   );
   const [finished, setFinished] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [managerActivity, setManagerActivity] = useState<Record<number, string>>({});
 
   useEffect(() => {
     setNoSudo(Boolean(options.noSudo));
@@ -84,11 +98,25 @@ export function UpdateScreen({
             ? { ...task, status: "running", error: undefined }
             : task
         ));
+        setManagerActivity((previous) => ({
+          ...previous,
+          [managerIdx]: mode === "uninstall"
+            ? `Starting ${manager.manager.command} removal…`
+            : `Starting ${manager.manager.command} update…`,
+        }));
+
+        const reportProgress = (message: string) => {
+          const normalized = normalizeProgressMessage(message);
+          if (!normalized) return;
+          setManagerActivity((previous) => previous[managerIdx] === normalized
+            ? previous
+            : { ...previous, [managerIdx]: normalized });
+        };
 
         try {
           const result = mode === "uninstall"
-            ? await manager.manager.uninstall(options.dryRun, packageNames)
-            : await manager.manager.update(options.dryRun, packageNames);
+            ? await manager.manager.uninstall(options.dryRun, packageNames, reportProgress)
+            : await manager.manager.update(options.dryRun, packageNames, reportProgress);
           setTasks((previous) => previous.map((task) =>
             task.managerIdx === managerIdx
               ? {
@@ -184,6 +212,7 @@ export function UpdateScreen({
               : "gray";
         const visibleTasks = managerTasks.slice(0, compact ? taskLimit : managerTasks.length);
         const firstError = managerTasks.find((task) => task.error)?.error;
+        const activity = managerActivity[managerIdx];
 
         return (
           <Box
@@ -202,8 +231,16 @@ export function UpdateScreen({
                   : <Text>○</Text>}
               <Text bold> {manager.manager.icon} {manager.manager.name}</Text>
               <Spacer />
-              <Text color={color}>{pct}% · {managerCompleted}/{managerTotal}</Text>
+              {isActive && !isDone
+                ? <Text color="cyan">working · {managerTotal} package(s)</Text>
+                : <Text color={color}>{pct}% · {managerCompleted}/{managerTotal}</Text>}
             </Box>
+
+            {isActive && !isDone && (
+              <Text color="cyan" wrap="truncate-end">
+                ↳ {activity ?? `Waiting for ${manager.manager.command} output…`}
+              </Text>
+            )}
 
             <Box flexDirection="column" marginTop={1}>
               {visibleTasks.map((task) => {
@@ -249,7 +286,8 @@ export function UpdateScreen({
         </Box>
       ) : (
         <Box>
-          <Text>{completedCount}/{totalPackages} complete · {donePct}%</Text>
+          <Text color="yellow"><Spinner type="dots" /></Text>
+          <Text> NxtUpdate is still working · {completedCount}/{totalPackages} package(s) finished · {formatElapsed(elapsed)}</Text>
         </Box>
       )}
 

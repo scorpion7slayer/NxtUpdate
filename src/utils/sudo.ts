@@ -1,13 +1,14 @@
-import { exec } from "./exec.ts";
+import { exec, type ExecOptions } from "./exec.ts";
 
 export async function runSudo(
   command: string[],
-  noSudo = false
+  noSudo = false,
+  options?: Pick<ExecOptions, "onLine">,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   if (noSudo) {
-    return exec(command);
+    return exec(command, options);
   }
-  return exec(["sudo", ...command]);
+  return exec(["sudo", ...command], options);
 }
 
 export async function hasSudoAccess(): Promise<boolean> {

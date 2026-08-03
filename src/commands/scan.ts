@@ -19,7 +19,10 @@ export async function scanCommand() {
   }));
   const detected = checks
     .filter((check) => check.found)
-    .map(({ pm }) => `${pm.icon} ${chalk.bold(pm.name)} ${chalk.dim(`(${pm.command})`)}`);
+    .map(({ pm }) => [
+      `${pm.icon} ${chalk.bold(pm.name)} ${chalk.dim(`(${pm.command})`)}`,
+      pm.skipReason ? chalk.dim(` — skipped: ${pm.skipReason}`) : "",
+    ].join(""));
   const notFound = checks
     .filter((check) => !check.found)
     .map(({ pm }) => pm.name);
