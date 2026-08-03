@@ -119,11 +119,15 @@
 - [x] Update every release version surface to `1.0.6`.
 - [x] Prevent an older public npm version from being advertised as an available update by the newer release binary.
 - [x] Validate frozen installs, dependency audits, tests, type checking, compiled binary, and npm package contents.
-- [ ] Commit the scoped changes and push the release branch.
-- [ ] Merge the release pull request after required checks pass.
-- [ ] Create and push annotated tag `v1.0.6` from the merged release commit.
-- [ ] Monitor the npm publication workflow and verify the public GitHub/npm state.
+- [x] Commit the scoped changes and push the release branch.
+- [x] Merge the release pull request after required checks pass.
+- [x] Create and push annotated tag `v1.0.6` from the merged release commit.
+- [x] Monitor the npm publication workflow and verify the public GitHub/npm state.
 
 ### Release review
 
-- Pending publication.
+- Pull request #8 merged after all three CodeQL checks passed.
+- Annotated tag `v1.0.6` resolves to merge commit `ea14497ffff6279e168c0eedf05aaf543b066ec0`.
+- GitHub Actions run `30825076954` published the package successfully.
+- The npm registry reports `nxtupdate@1.0.6` as the `latest` distribution tag.
+- Release validation caught and fixed the pre-publication binary incorrectly advertising the older registry version as an available update.
