@@ -28,7 +28,7 @@ NxtUpdate detects every package manager installed on your Mac and updates them a
 |---|---|---|---|
 | Homebrew | 🍺 | `brew` | Formulae + Casks |
 | Node.js | 📦 | `npm` / `pnpm` / `yarn` / `bun` | Auto-selects active PM |
-| Python | 🐍 | `pip3` / `pip` | Skips virtualenvs |
+| Python | 🐍 | `pip3` / `pip` | Skips virtualenvs and externally managed environments |
 | Rust / Cargo | 🦀 | `cargo` | Requires `cargo-install-update` |
 | macOS System | 🍎 | `softwareupdate` | Runs with sudo |
 

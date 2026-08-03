@@ -51,9 +51,22 @@ export async function updateCommand(options: CliOptions) {
   spinner.stop();
 
   const withOutdated = managers.filter((pm) => (outdatedMap.get(pm)?.length ?? 0) > 0);
+  const skipped = managers.filter((pm) => pm.skipReason);
+
+  if (skipped.length > 0) {
+    logger.info(`${skipped.length} package manager(s) skipped:`);
+    for (const pm of skipped) {
+      logger.dim(`  · ${pm.name}: ${pm.skipReason}`);
+    }
+    console.log("");
+  }
 
   if (withOutdated.length === 0) {
-    logger.success("Everything is already up to date! 🎉\n");
+    if (skipped.length > 0) {
+      logger.info("No actionable package updates.\n");
+    } else {
+      logger.success("Everything is already up to date! 🎉\n");
+    }
     const updateInfo = await updateInfoPromise;
     if (updateInfo?.hasUpdate) showUpdateNotice(updateInfo);
     return;

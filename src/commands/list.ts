@@ -55,9 +55,15 @@ export async function listCommand(options: CliOptions = {}) {
   }));
 
   let totalOutdated = 0;
+  let skippedManagers = 0;
   for (const { pm, outdated, error } of scans) {
     if (error) {
       logger.error(`Failed to check ${pm.name}: ${error}`);
+      continue;
+    }
+    if (pm.skipReason) {
+      console.log(chalk.yellow(`${pm.icon} ${pm.name}`) + chalk.dim(` — skipped: ${pm.skipReason}\n`));
+      skippedManagers++;
       continue;
     }
     if (outdated.length === 0) {
@@ -83,7 +89,11 @@ export async function listCommand(options: CliOptions = {}) {
   }
 
   if (totalOutdated === 0) {
-    logger.success("All packages are up to date!\n");
+    if (skippedManagers > 0) {
+      logger.info("No actionable package updates. Skipped managers are listed above.\n");
+    } else {
+      logger.success("All packages are up to date!\n");
+    }
   } else {
     console.log(chalk.yellow(`  Total: ${totalOutdated} outdated package(s)\n`));
   }

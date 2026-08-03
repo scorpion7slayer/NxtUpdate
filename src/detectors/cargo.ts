@@ -1,4 +1,4 @@
-import type { PackageManager, OutdatedPackage, InstalledPackage, UpdateResult } from "./types.ts";
+import type { PackageManager, OutdatedPackage, InstalledPackage, UpdateResult, ProgressReporter } from "./types.ts";
 import { exec, isInstalled } from "../utils/exec.ts";
 
 export const cargo: PackageManager = {
@@ -30,20 +30,22 @@ export const cargo: PackageManager = {
     });
   },
 
-  async update(dryRun = false, packages?: string[]): Promise<UpdateResult> {
+  async update(dryRun = false, packages?: string[], onProgress?: ProgressReporter): Promise<UpdateResult> {
     if (dryRun) return { manager: "Rust (Cargo)", success: true, updated: packages?.length ?? 0, output: "dry run" };
     if (!isInstalled("cargo-install-update")) {
       return { manager: "Rust (Cargo)", success: false, updated: 0, output: "", error: "cargo-install-update not installed. Run: cargo install cargo-install-update" };
     }
     const cmd = packages && packages.length > 0 ? ["cargo", "install-update", ...packages] : ["cargo", "install-update", "--all"];
-    const result = await exec(cmd);
+    onProgress?.(`Downloading and installing ${packages?.length ?? "all"} Cargo package(s)…`);
+    const result = await exec(cmd, { onLine: onProgress });
     return { manager: "Rust (Cargo)", success: result.exitCode === 0, updated: packages?.length ?? 0, output: result.stdout, error: result.exitCode !== 0 ? result.stderr : undefined };
   },
 
-  async uninstall(dryRun = false, packages?: string[]): Promise<UpdateResult> {
+  async uninstall(dryRun = false, packages?: string[], onProgress?: ProgressReporter): Promise<UpdateResult> {
     if (!packages?.length) return { manager: "Rust (Cargo)", success: true, updated: 0, output: "Nothing to uninstall" };
     if (dryRun) return { manager: "Rust (Cargo)", success: true, updated: packages.length, output: "dry run" };
-    const result = await exec(["cargo", "uninstall", ...packages]);
+    onProgress?.(`Removing ${packages.length} Cargo package(s)…`);
+    const result = await exec(["cargo", "uninstall", ...packages], { onLine: onProgress });
     return { manager: "Rust (Cargo)", success: result.exitCode === 0, updated: packages.length, output: result.stdout, error: result.exitCode !== 0 ? result.stderr : undefined };
   },
 };
